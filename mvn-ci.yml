@@ -1,0 +1,193 @@
+variables:
+  MAVEN_OPTS: -Dmaven.repo.local=.m2/repository
+
+image: maven:latest
+
+stages:
+  - prepare
+  - generate_token
+  - deploy_kvm
+  - deploy
+variables:
+  VARIABLES_FILE: ./variables.txt  # "." is required for image that have sh not bash
+  OAUTHTOKENFILE: ./oauthtoken.txt
+  #NONPRODPOST_OAUTH_URL: "https://stage.apis.lllext.com/apim/v1/oauth2/clientcredentials/azure/accesstoken"
+  #NONPRODPOST_TOKEN_URL: "https://stage.apis.lllext.com/apim/v1/tokengeneration/tokenapi"
+  #PRODPOST_OAUTH_URL: "https://prod.apis.lllext.com/apim/v1/oauth2/clientcredentials/azure/accesstoken"
+  #PRODPOST_TOKEN_URL: "https://prod.apis.lllext.com/apim/v1/tokengeneration/tokenapi"
+  #REQUESTID: ""
+  #REQUESTAPP: ""
+  #ORG: ""
+  #pomFilePath: "src/gateway/apim-cicddemo-v1"
+  #pomFile: " "
+  #JSDir: "src/gateway/apim-cicddemo-v1/apiproxy/"
+  
+cache:
+  paths:
+    - .m2/repository
+    - target
+build:
+  stage: prepare
+  #tags:
+  #  - docker
+  script:
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASS" 
+generate_auth_token:
+  stage: generate_token
+  environment: dev
+  #tags:
+  #  - docker
+  script:
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASSCODE"
+    - export AUTH_TOKEN=$(echo -n "$XAPIKEY:$SECRET" |  base64)
+    - echo $AUTH_TOKEN
+    - echo $XLLTOKEN
+    - echo $POST_OAUTH_URL
+    - echo $SECRET
+    - 'curl -H "x-lll-access-token: $XLLTOKEN" -H "x-apikey:$XAPIKEY" -H "Content-Type: application/x-www-form-urlencoded" -H "Authorization: Basic $AUTH_TOKEN" -X POST ${POST_OAUTH_URL} -s --data-urlencode username="$USER" --data-urlencode password="$PASSCODE" --data-urlencode grant_type=client_credentials > oauthtoken.txt'
+    - cat oauthtoken.txt
+    - cat /etc/os-release
+    - apt update
+    - apt install jq -y
+    - export ACCESS_TOKEN=$(cat oauthtoken.txt | jq '.access_token' | xargs)
+    - echo $ACCESS_TOKEN
+    - echo $XLLTOKEN
+    - echo $REQUESTID
+    - echo $REQUESTAPP
+    - echo $ORG
+    - echo $POST_TOKEN_URL
+    - 'curl -v -H "x-lll-access-token: $XLLTOKEN" -H "content-type: application/json" -H "authorization: Bearer $ACCESS_TOKEN" -X POST $POST_TOKEN_URL -s -d " {\"requestID\": \"$REQUESTID\", \"requestedByApp\": \"$REQUESTAPP\", \"apigeeOrganization\": \"$ORG\"}" > deployment.txt'
+    - cat deployment.txt
+    - export DEPLOYMENT_TOKEN=$(cat deployment.txt | jq '.access_token' | xargs)
+    - echo $DEPLOYMENT_TOKEN
+    - echo "DEPLOYMENT_TOKEN=$DEPLOYMENT_TOKEN" >> build.env
+    - pwd
+  artifacts:
+    reports:
+      dotenv: build.env
+deploy_kvm:
+  stage: deploy_kvm
+  environment: dev
+  when: manual
+  script:
+    - set -ax
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASSCODE"
+    - echo "$DEPLOYMENT_TOKEN"
+    - ls -lrt
+    - pwd 
+    - mvn clean install apigee-config:kvms -D"apigee.config.options"=update -Pnonprod -Duser="$USER" -Dauthtype=oauth -Dbearer="$DEPLOYMENT_TOKEN" -Dorg="$ORG" -Denv="dev"
+    - Dpassword="$PASSCODE"
+  artifacts:
+    paths:
+      #- .m2/repository
+      - target
+	  
+ 
+
+deploy_dev:
+  stage: deploy
+  environment: dev
+  when: manual
+  script:
+    - set -ax
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASSCODE"
+    - echo "$DEPLOYMENT_TOKEN"
+    - ls -lrt
+    - pwd
+    - mvn clean install -Pnonprod -Dapigee.options=update -Dbearer="$DEPLOYMENT_TOKEN" -Duser="$USER" -Dorg="$ORG"
+  artifacts:
+    paths:
+      #- .m2/repository
+      - target
+
+deploy_sandbox-dev:
+  stage: deploy
+  environment: sandbox-dev
+  when: manual
+  script:
+    - set -ax
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASSCODE"
+    - echo "$DEPLOYMENT_TOKEN"
+    - ls -lrt
+    - pwd
+    - mvn clean install -Pnonprod -Dapigee.options=update -Dbearer="$DEPLOYMENT_TOKEN" -Duser="$USER" -Dorg="$ORG"
+
+deploy_stage:
+  stage: deploy
+  environment: stage
+  when: manual
+  script:
+    - set -ax
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASSCODE"
+    - echo "$DEPLOYMENT_TOKEN"
+    - ls -lrt
+    - pwd
+    - mvn clean install -Pnonprod -Dapigee.options=update -Dbearer="$DEPLOYMENT_TOKEN" -Duser="$USER" -Denv="dev" -Dorg="$ORG"
+
+deploy_test:
+  stage: deploy
+  environment: test
+  when: manual
+  script:
+    - set -ax
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASSCODE"
+    - echo "$DEPLOYMENT_TOKEN"
+    - ls -lrt
+    - pwd 
+    - mvn clean install -Pnonprod -Dapigee.options=update -Dbearer="$DEPLOYMENT_TOKEN" -Duser="$USER" -Dorg="$ORG"
+
+deploy_preview:
+  stage: deploy
+  environment: preview
+  when: manual
+  script:
+    - set -ax
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASSCODE"
+    - echo "$DEPLOYMENT_TOKEN"
+    - ls -lrt
+    - pwd 
+    - mvn clean install -Pnonprod -Dapigee.options=update -Dbearer="$DEPLOYMENT_TOKEN" -Duser="$USER" -Dorg="$ORG"
+
+deploy_prod:
+  stage: deploy
+  environment: prod
+  when: manual
+  script:
+    - set -ax
+    - echo "$ORG"  # calls a predefined variable
+    - echo "$XAPIKEY"          # calls a custom variable of type `env_var`
+    - echo "$USER"      # calls a custom variable of type `file` that contains the path to the temp file
+    - echo "$PASSCODE"
+    - echo "$DEPLOYMENT_TOKEN"
+    - ls -lrt
+    - pwd 
+    - mvn clean install -Pnonprod -Dapigee.options=update -Dbearer="$DEPLOYMENT_TOKEN" -Duser="$USER" -Dorg="$ORG"
+	
+	
+	
+
+
